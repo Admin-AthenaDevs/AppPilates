@@ -1,0 +1,374 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum StudioRole {
+  OWNER
+  INSTRUCTOR
+  FRONT_DESK
+  CLIENT
+}
+
+enum RoomType {
+  MAT
+  REFORMER
+  PRIVATE
+  MIXED
+}
+
+enum ClassType {
+  MAT
+  REFORMER
+  SEMI_PRIVATE
+  PRIVATE
+}
+
+enum ReservationStatus {
+  BOOKED
+  WAITLISTED
+  CANCELLED
+  ATTENDED
+  NO_SHOW
+}
+
+enum BillingInterval {
+  MONTHLY
+  CLASS_PACK
+  ONE_TIME
+}
+
+enum MembershipStatus {
+  ACTIVE
+  PAST_DUE
+  PAUSED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentKind {
+  MEMBERSHIP
+  CLASS_PACK
+  PRIVATE_SESSION
+  VIDEO_ACCESS
+}
+
+enum VideoStatus {
+  DRAFT
+  PROCESSING
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VideoLevel {
+  BEGINNER
+  ALL_LEVELS
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+model Studio {
+  id                       String              @id @default(cuid())
+  slug                     String              @unique
+  name                     String
+  logoUrl                  String?
+  brandPrimary             String              @default("#176b5b")
+  brandAccent              String              @default("#e89a78")
+  timezone                 String              @default("Europe/Madrid")
+  countryCode              String              @default("ES") @db.VarChar(2)
+  currency                 String              @default("EUR") @db.VarChar(3)
+  cancellationNoticeHours Int                 @default(8)
+  stripeAccountId          String?             @unique
+  settings                 Json                @default("{}")
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  members                  StudioMember[]
+  clients                  ClientProfile[]
+  instructors              InstructorProfile[]
+  rooms                    Room[]
+  classTemplates           ClassTemplate[]
+  classSessions            ClassSession[]
+  reservations             Reservation[]
+  plans                    MembershipPlan[]
+  studentMemberships      StudentMembership[]
+  videos                   Video[]
+  videoPlanAccess          VideoPlanAccess[]
+  payments                 Payment[]
+  notifications            NotificationLog[]
+
+  @@index([name])
+}
+
+model User {
+  id                String              @id @default(cuid())
+  supabaseUserId    String?             @unique
+  email             String              @unique
+  name              String
+  imageUrl          String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  memberships       StudioMember[]
+  clientProfiles    ClientProfile[]
+  instructorProfiles InstructorProfile[]
+}
+
+model StudioMember {
+  id        String     @id @default(cuid())
+  studioId  String
+  userId    String
+  role      StudioRole
+  isActive  Boolean    @default(true)
+  joinedAt  DateTime   @default(now())
+  studio    Studio     @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([studioId, userId])
+  @@index([userId, role])
+  @@index([studioId, role, isActive])
+}
+
+model ClientProfile {
+  id                    String             @id @default(cuid())
+  studioId              String
+  userId                String
+  phone                 String?
+  emergencyContact      String?
+  medicalNotesEncrypted String?            @db.Text
+  goals                 String?            @db.Text
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  studio                Studio             @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reservations          Reservation[]
+  memberships           StudentMembership[]
+  payments              Payment[]
+
+  @@unique([studioId, userId])
+  @@unique([id, studioId])
+  @@index([studioId, createdAt])
+}
+
+model InstructorProfile {
+  id          String        @id @default(cuid())
+  studioId    String
+  userId      String
+  bio         String?       @db.Text
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  studio      Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions    ClassSession[]
+  videos      Video[]
+
+  @@unique([id, studioId])
+  @@unique([studioId, userId])
+  @@index([studioId, isActive])
+}
+
+model Room {
+  id          String        @id @default(cuid())
+  studioId    String
+  name        String
+  type        RoomType
+  capacity    Int
+  isActive    Boolean       @default(true)
+  studio      Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  sessions    ClassSession[]
+
+  @@unique([studioId, name])
+  @@unique([id, studioId])
+  @@index([studioId, type, isActive])
+}
+
+model ClassTemplate {
+  id              String        @id @default(cuid())
+  studioId        String
+  name            String
+  type            ClassType
+  durationMinutes Int           @default(50)
+  defaultCapacity Int
+  isActive        Boolean       @default(true)
+  studio          Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  sessions        ClassSession[]
+
+  @@unique([id, studioId])
+  @@index([studioId, isActive, type])
+}
+
+model ClassSession {
+  id              String        @id @default(cuid())
+  studioId        String
+  templateId      String
+  instructorId    String
+  roomId          String
+  startsAt        DateTime
+  endsAt          DateTime
+  capacity        Int
+  isCancelled     Boolean       @default(false)
+  studio          Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  template        ClassTemplate @relation(fields: [templateId, studioId], references: [id, studioId], onDelete: Restrict)
+  instructor      InstructorProfile @relation(fields: [instructorId, studioId], references: [id, studioId], onDelete: Restrict)
+  room            Room          @relation(fields: [roomId, studioId], references: [id, studioId], onDelete: Restrict)
+  reservations    Reservation[]
+
+  @@unique([id, studioId])
+  @@unique([studioId, roomId, startsAt])
+  @@unique([studioId, instructorId, startsAt])
+  @@index([studioId, startsAt, isCancelled])
+}
+
+model MembershipPlan {
+  id                String              @id @default(cuid())
+  studioId          String
+  name              String
+  description       String?             @db.Text
+  priceCents        Int
+  currency          String              @db.VarChar(3)
+  interval          BillingInterval
+  classCredits      Int?
+  stripePriceId     String?
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  studio            Studio              @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  memberships       StudentMembership[]
+  videoAccess       VideoPlanAccess[]
+
+  @@unique([id, studioId])
+  @@unique([studioId, name])
+  @@index([studioId, isActive])
+}
+
+model StudentMembership {
+  id                     String           @id @default(cuid())
+  studioId               String
+  clientId               String
+  planId                 String
+  status                 MembershipStatus @default(ACTIVE)
+  remainingCredits       Int?
+  stripeSubscriptionId   String?          @unique
+  currentPeriodEndsAt    DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  studio                 Studio           @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  client                 ClientProfile    @relation(fields: [clientId, studioId], references: [id, studioId], onDelete: Cascade)
+  plan                   MembershipPlan   @relation(fields: [planId, studioId], references: [id, studioId], onDelete: Restrict)
+
+  @@index([studioId, clientId, status])
+  @@index([studioId, currentPeriodEndsAt])
+}
+
+model Reservation {
+  id             String            @id @default(cuid())
+  studioId       String
+  classSessionId String
+  clientId       String
+  status         ReservationStatus @default(BOOKED)
+  waitlistOrder  Int?
+  bookedAt       DateTime          @default(now())
+  cancelledAt    DateTime?
+  attendedAt     DateTime?
+  studio         Studio            @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  classSession   ClassSession      @relation(fields: [classSessionId, studioId], references: [id, studioId], onDelete: Cascade)
+  client         ClientProfile     @relation(fields: [clientId, studioId], references: [id, studioId], onDelete: Cascade)
+
+  @@unique([studioId, classSessionId, clientId])
+  @@index([studioId, classSessionId, status, waitlistOrder])
+  @@index([studioId, clientId, bookedAt])
+}
+
+model Video {
+  id              String             @id @default(cuid())
+  studioId        String
+  instructorId    String
+  title           String
+  description     String?            @db.Text
+  level           VideoLevel         @default(ALL_LEVELS)
+  durationSeconds Int?
+  muxAssetId      String?            @unique
+  muxPlaybackId   String?            @unique
+  status          VideoStatus        @default(DRAFT)
+  publishedAt     DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  studio          Studio             @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  instructor      InstructorProfile @relation(fields: [instructorId, studioId], references: [id, studioId], onDelete: Restrict)
+  plans           VideoPlanAccess[]
+
+  @@unique([id, studioId])
+  @@index([studioId, status, publishedAt])
+  @@index([studioId, instructorId, createdAt])
+}
+
+model VideoPlanAccess {
+  studioId String
+  videoId  String
+  planId   String
+  createdAt DateTime       @default(now())
+  studio   Studio          @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  video    Video           @relation(fields: [videoId, studioId], references: [id, studioId], onDelete: Cascade)
+  plan     MembershipPlan  @relation(fields: [planId, studioId], references: [id, studioId], onDelete: Cascade)
+
+  @@id([studioId, videoId, planId])
+  @@index([studioId, planId])
+}
+
+model Payment {
+  id                      String        @id @default(cuid())
+  studioId                String
+  clientId                String?
+  kind                    PaymentKind
+  status                  PaymentStatus @default(PENDING)
+  amountCents             Int
+  currency                String        @db.VarChar(3)
+  stripePaymentIntentId   String?       @unique
+  stripeCheckoutSessionId String?       @unique
+  idempotencyKey          String        @unique
+  paidAt                  DateTime?
+  createdAt               DateTime      @default(now())
+  studio                  Studio        @relation(fields: [studioId], references: [id], onDelete: Cascade)
+  client                  ClientProfile? @relation(fields: [clientId, studioId], references: [id, studioId], onDelete: Restrict)
+
+  @@index([studioId, status, createdAt])
+  @@index([studioId, clientId, createdAt])
+}
+
+model NotificationLog {
+  id             String              @id @default(cuid())
+  studioId       String
+  channel        NotificationChannel
+  status         NotificationStatus @default(QUEUED)
+  recipient      String
+  templateKey    String
+  idempotencyKey String              @unique
+  providerId     String?
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  createdAt      DateTime            @default(now())
+  studio         Studio              @relation(fields: [studioId], references: [id], onDelete: Cascade)
+
+  @@index([studioId, status, scheduledAt])
+}
